@@ -2,43 +2,53 @@ import sys
 import argparse
 import numpy as np
 import pandas as pd
-import os 
+import os
+import tempfile
 
-'''
+"""
 Read and write PLY formatted point clouds--------------------------------------------------------------------------------------------
-'''
+"""
+
 
 def read_ply(fp, newline=None):
-
-    encoding = 'ISO-8859-1' if sys.version_info > (3, 0) else None
-    newline = '\n' if sys.platform == 'win32' and sys.version_info > (3, 0) else None
+    encoding = "ISO-8859-1" if sys.version_info > (3, 0) else None
+    newline = "\n" if sys.platform == "win32" and sys.version_info > (3, 0) else None
 
     with open(fp, encoding=encoding, newline=newline) as ply:
- 
         length = 0
         prop = []
-        dtype_map = {'uint16':'uint16', 'uint8':'uint8', 'double':'d', 'float64':'f8', 
-                     'float32':'f4', 'float': 'f4', 'uchar': 'B', 'int':'i'}
+        dtype_map = {
+            "uint16": "uint16",
+            "uint8": "uint8",
+            "double": "d",
+            "float64": "f8",
+            "float32": "f4",
+            "float": "f4",
+            "uchar": "B",
+            "int": "i",
+        }
         dtype = []
-        fmt = 'binary'
-    
+        fmt = "binary"
+
         for i, line in enumerate(ply):
             length += len(line)
             split_line = line.split()
-            if i == 1 and 'ascii' in line:
-                fmt = 'ascii' 
-            if 'element vertex' in line: N = int(split_line[2])
-            if 'property' in line: 
+            if i == 1 and "ascii" in line:
+                fmt = "ascii"
+            if "element vertex" in line:
+                N = int(split_line[2])
+            if "property" in line:
                 dtype.append(dtype_map[split_line[1]])
                 prop.append(split_line[2])
-            if 'element face' in line:
-                raise Exception('.ply appears to be a mesh')
-            if 'end_header' in line: break
-    
+            if "element face" in line:
+                raise Exception(".ply appears to be a mesh")
+            if "end_header" in line:
+                break
+
         ply.seek(length)
 
-        if fmt == 'binary':
-            arr = np.fromfile(ply, dtype=','.join(dtype))
+        if fmt == "binary":
+            arr = np.fromfile(ply, dtype=",".join(dtype))
         else:
             arr = np.loadtxt(ply)
         df = pd.DataFrame(data=arr)
@@ -46,15 +56,22 @@ def read_ply(fp, newline=None):
 
     return df
 
+
 def write_ply(output_name, pc, comments=[]):
+    cols = ["x", "y", "z"]
 
-    cols = ['x', 'y', 'z']
-    pc = pc.astype({'x': 'float64', 'y': 'float64', 'z': 'float64'})
+    # Convert ScaledArrayView to regular numpy arrays if needed
+    for col in ["x", "y", "z"]:
+        if hasattr(pc[col], "array"):
+            pc[col] = pc[col].array
+        elif hasattr(pc[col], "copy"):
+            pc[col] = pc[col].copy()
 
-    with open(output_name, 'w') as ply:
+    pc = pc.astype({"x": "float64", "y": "float64", "z": "float64"})
 
+    with open(output_name, "w") as ply:
         ply.write("ply\n")
-        ply.write('format binary_little_endian 1.0\n')
+        ply.write("format binary_little_endian 1.0\n")
         ply.write("comment Author: Phil Wilkes\n")
         for comment in comments:
             ply.write("comment {}\n".format(comment))
@@ -63,127 +80,188 @@ def write_ply(output_name, pc, comments=[]):
         ply.write("property float64 x\n")
         ply.write("property float64 y\n")
         ply.write("property float64 z\n")
-        if 'red' in pc.columns:
-            cols += ['red', 'green', 'blue']
-            pc[['red', 'green', 'blue']] = pc[['red', 'green', 'blue']].astype('i')
+        if "red" in pc.columns:
+            cols += ["red", "green", "blue"]
+            pc[["red", "green", "blue"]] = pc[["red", "green", "blue"]].astype("i")
             ply.write("property int red\n")
             ply.write("property int green\n")
             ply.write("property int blue\n")
         for col in pc.columns:
-            if col in cols: continue
+            if col in cols:
+                continue
             try:
-                pc[col] = pc[col].astype('float64')
+                pc[col] = pc[col].astype("float64")
                 ply.write("property float64 {}\n".format(col))
                 cols += [col]
             except:
                 pass
         ply.write("end_header\n")
 
-    with open(output_name, 'ab') as ply:
-        ply.write(pc[cols].to_records(index=False).tobytes()) 
+    with open(output_name, "ab") as ply:
+        ply.write(pc[cols].to_records(index=False).tobytes())
 
 
-'''
+"""
 Read and write PCD formatted point clouds----------------------------------------------------------------------------------------------------
-'''
+"""
+
 
 def read_pcd(fp):
-
-    if (sys.version_info > (3, 0)):
-        open_file = open(fp, encoding='ISO-8859-1')
+    if sys.version_info > (3, 0):
+        open_file = open(fp, encoding="ISO-8859-1")
     else:
         open_file = open(fp)
 
     with open_file as pcd:
-
         length = 0
 
         for i, line in enumerate(pcd.readlines()):
             length += len(line)
-            if 'WIDTH' in line: N = int(line.split()[1])
-            if 'FIELDS' in line: F = line.split()[1:]
-            if 'DATA' in line:
+            if "WIDTH" in line:
+                N = int(line.split()[1])
+            if "FIELDS" in line:
+                F = line.split()[1:]
+            if "DATA" in line:
                 fmt = line.split()[1]
                 break
 
-        if fmt == 'binary':
+        if fmt == "binary":
             pcd.seek(length)
-            arr = np.fromfile(pcd, dtype='f')
+            arr = np.fromfile(pcd, dtype="f")
 
-            arr = arr[:N*len(F)].reshape(-1, len(F))
+            arr = arr[: N * len(F)].reshape(-1, len(F))
             df = pd.DataFrame(arr, columns=F)
 
-    if fmt == 'ascii':
-        df = pd.read_csv(fp, sep=' ', names=F, skiprows=11)
+    if fmt == "ascii":
+        df = pd.read_csv(fp, sep=" ", names=F, skiprows=11)
 
     return df
 
+
 def write_pcd(df, path, binary=True):
+    columns = ["x", "y", "z", "intensity"]
+    df.rename(columns={"scalar_intensity": "intensity"}, inplace=True)
+    if "intensity" not in df.columns:
+        columns = columns[:3]
 
-    columns = ['x', 'y', 'z', 'intensity']
-    df.rename(columns={'scalar_intensity':'intensity'}, inplace=True)
-    if 'intensity' not in df.columns: columns = columns[:3]
+    with open(path, "w") as pcd:
+        pcd.write("# .PCD v0.7 - Point Cloud Data file format\n")
+        pcd.write("VERSION 0.7\n")
+        pcd.write("FIELDS " + " ".join(columns + ["\n"]))
+        pcd.write("SIZE " + "4 " * len(columns) + "\n")
+        pcd.write("TYPE " + "F " * len(columns) + "\n")
+        pcd.write("COUNT " + "1 " * len(columns) + "\n")
+        pcd.write("WIDTH {}\n".format(len(df)))
+        pcd.write("HEIGHT 1\n")
+        pcd.write("VIEWPOINT 0 0 0 1 0 0 0\n")
+        pcd.write("POINTS {}\n".format(len(df)))
+        pcd.write("DATA binary\n")
 
-    with open(path, 'w') as pcd:
-
-        pcd.write('# .PCD v0.7 - Point Cloud Data file format\n')
-        pcd.write('VERSION 0.7\n')
-        pcd.write('FIELDS ' + ' '.join(columns + ['\n']))
-        pcd.write('SIZE ' + '4 ' * len(columns) + '\n')
-        pcd.write('TYPE ' + 'F ' * len(columns) + '\n')
-        pcd.write('COUNT ' + '1 ' * len(columns) + '\n')
-        pcd.write('WIDTH {}\n'.format(len(df)))
-        pcd.write('HEIGHT 1\n')
-        pcd.write('VIEWPOINT 0 0 0 1 0 0 0\n')
-        pcd.write('POINTS {}\n'.format(len(df)))
-        pcd.write('DATA binary\n')
-
-    with open(path, 'ab') as pcd:
-        df[columns].values.astype('f4').tofile(pcd)
+    with open(path, "ab") as pcd:
+        df[columns].values.astype("f4").tofile(pcd)
 
 
-'''
+"""
 Read and Write functions-------------------------------------------------------------------------------------------------------------
-'''
+"""
+
 
 def load_file(filename, additional_headers=False, verbose=False):
-    
     file_extension = os.path.splitext(filename)[1]
-    headers = ['x', 'y', 'z']
+    headers = ["x", "y", "z"]
 
-    if file_extension == '.las' or file_extension == '.laz':
-
+    if file_extension == ".las" or file_extension == ".laz":
         import laspy
 
-        inFile = laspy.read(filename)
-        pc = np.vstack((inFile.x, inFile.y, inFile.z))
-        pc = pd.DataFrame(data=pc.T, columns=['x', 'y', 'z'])
+        if verbose:
+            print(f"Reading LAS/LAZ file: {filename}")
 
-    elif file_extension == '.ply':
+        inFile = laspy.read(filename)
+
+        # Create DataFrame with all available attributes
+        # Convert ScaledArrayView to regular numpy arrays
+        pc_data = {
+            "x": np.array(inFile.x),
+            "y": np.array(inFile.y),
+            "z": np.array(inFile.z),
+        }
+
+        # Add intensity if available (this is often used as reflectance)
+        if hasattr(inFile, "intensity") and inFile.intensity is not None:
+            pc_data["intensity"] = np.array(inFile.intensity)
+
+        # Add classification if available
+        if hasattr(inFile, "classification") and inFile.classification is not None:
+            pc_data["classification"] = np.array(inFile.classification)
+
+        # Add return number if available
+        if hasattr(inFile, "return_number") and inFile.return_number is not None:
+            pc_data["return_number"] = np.array(inFile.return_number)
+
+        # Add number of returns if available
+        if (
+            hasattr(inFile, "number_of_returns")
+            and inFile.number_of_returns is not None
+        ):
+            pc_data["number_of_returns"] = np.array(inFile.number_of_returns)
+
+        # Add scan angle if available
+        if hasattr(inFile, "scan_angle_rank") and inFile.scan_angle_rank is not None:
+            pc_data["scan_angle_rank"] = np.array(inFile.scan_angle_rank)
+
+        # Add RGB colors if available
+        if hasattr(inFile, "red") and inFile.red is not None:
+            pc_data["red"] = np.array(inFile.red)
+            pc_data["green"] = np.array(inFile.green)
+            pc_data["blue"] = np.array(inFile.blue)
+
+        pc = pd.DataFrame(data=pc_data)
+
+        # Convert to PLY format and save temporarily
+        temp_ply_path = os.path.join(
+            tempfile.gettempdir(), f"temp_converted_{os.path.basename(filename)}.ply"
+        )
+        write_ply(temp_ply_path, pc)
+
+        if verbose:
+            print(f"Converted LAS/LAZ to PLY: {temp_ply_path}")
+
+        # Read the PLY file to ensure consistent format
+        pc = read_ply(temp_ply_path)
+
+        # Clean up temporary file
+        try:
+            os.remove(temp_ply_path)
+        except:
+            pass
+
+    elif file_extension == ".ply":
         pc = read_ply(filename)
-        
-    elif file_extension == '.pcd':
+
+    elif file_extension == ".pcd":
         pc = read_pcd(filename)
-        
+
     else:
-        raise Exception('point cloud format not recognised' + filename)
+        raise Exception("point cloud format not recognised" + filename)
 
     original_num_points = len(pc)
-    
-    if verbose: print(f'read in {filename} with {len(pc)} points')
-   
+
+    if verbose:
+        print(f"read in {filename} with {len(pc)} points")
+
     if additional_headers:
-        return pc, [c for c in pc.columns if c not in ['x', 'y', 'z']]
-    else: return pc
+        return pc, [c for c in pc.columns if c not in ["x", "y", "z"]]
+    else:
+        return pc
 
 
 def save_file(filename, pointcloud, additional_fields=[], verbose=False):
     if verbose:
-        print('Saving file:', filename)
-        
-    cols = ['x', 'y', 'z'] + additional_fields
+        print("Saving file:", filename)
 
-    if filename.endswith('.las'):
+    cols = ["x", "y", "z"] + additional_fields
+
+    if filename.endswith(".las"):
         las = laspy.create(file_version="1.4", point_format=7)
         las.header.offsets = np.min(pointcloud[:, :3], axis=0)
         las.header.scales = [0.001, 0.001, 0.001]
@@ -202,7 +280,7 @@ def save_file(filename, pointcloud, additional_fields=[], verbose=False):
             col_idxs.reverse()
             for header, i in zip(additional_fields, col_idxs):
                 column = pointcloud[:, i]
-                if header in ['red', 'green', 'blue']:
+                if header in ["red", "green", "blue"]:
                     setattr(las, header, column)
                 else:
                     las.add_extra_dim(laspy.ExtraBytesParams(name=header, type="f8"))
@@ -211,15 +289,16 @@ def save_file(filename, pointcloud, additional_fields=[], verbose=False):
         if not verbose:
             print("Saved.")
 
-    elif filename.endswith('.csv'):
-        pd.DataFrame(pointcloud).to_csv(filename, header=None, index=None, sep=' ')
-        if verbose: print("Saved to:", filename)
+    elif filename.endswith(".csv"):
+        pd.DataFrame(pointcloud).to_csv(filename, header=None, index=None, sep=" ")
+        if verbose:
+            print("Saved to:", filename)
 
-    elif filename.endswith('.ply'):
-
+    elif filename.endswith(".ply"):
         if not isinstance(pointcloud, pd.DataFrame):
             cols = list(set(cols))
             pointcloud = pd.DataFrame(pointcloud, columns=cols)
-        
+
         write_ply(filename, pointcloud[cols])
-        if verbose: print("Saved to:", filename)
+        if verbose:
+            print("Saved to:", filename)
