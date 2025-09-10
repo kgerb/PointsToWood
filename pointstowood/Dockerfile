@@ -11,6 +11,8 @@ RUN pip uninstall torch torchvision torchaudio -y && \
     pip install torch-geometric && \
     pip install pandas pykdtree numba tqdm
 
+RUN pip install laspy[lazrs]
+
 RUN mkdir -p /src
 
 WORKDIR /src
